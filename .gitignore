@@ -127,3 +127,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Transitive dependencies, should be kept out so people can build it themselves
+requirements.txt

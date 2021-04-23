@@ -13,7 +13,7 @@ This approach is recommended by:
 - [VS Code tutorials](https://code.visualstudio.com/docs/containers/quickstart-python)
 - [RealPython tutorials](https://github.com/realpython/orchestrating-docker)
 
-It is the de-facto accepted paradigm for developing anything python-related with Docker. And it works very well for simpler projects.
+It is the de-facto accepted paradigm for developing anything python-related with Docker. It works very well for simpler projects, and does indeed ensure reliable reproducibility once the requirements have been computed.
 
 ## What triggered me to rethink it
 
@@ -22,38 +22,36 @@ One of the main reasons why I love Docker is the **isolation** it provides to my
 But if you decide to use a **local** python environment to compute dependencies, you could run into the following issues:
 - Having different python versions locally and in your Docker image leading to improper package versions
 - Having different operating systems that have different install dependencies for packages (like the very popular `psycopg2` having issues on MacOS)
-- Having packages already installed in your Docker image that are not compatible with the versions you will be pinning
+- Having packages already installed in your base Docker image that are not compatible with the versions you will be pinning
 
 So ideally, you need to:
-- Run a VM with the **same** operating system as your Docker image
-	- Also includes architecture, which I was confronted to when working with my M1 MacBook Air
+- Run a VM with the **same** operating system as your base Docker image
+	- This also includes architecture, which I was confronted to when working with my M1 MacBook Air
 - Install the **same** python version as your base Docker image in the VM
 - If any packages are installed in your [base Docker image](https://hub.docker.com/r/tiangolo/uvicorn-gunicorn-fastapi/), install them in the VM’s enviroment
 - Install additional python packages in the VM’s environment and use it as your development environment
 
-But this sounds very much like using Docker itself, doesn’t it?
+But this sounds very much like something Docker would be great at, doesn’t it?
 
-Which is why I think the right approach should be to do **everything** in Docker. Transitive dependencies should be computed **inside** the base Docker image that will be used.
+Which is why I think the right approach should be to do **everything** in Docker. Transitive dependencies should be computed **inside** the base Docker image that will be used, and require only Docker to be installed to be computed.
 
-With this approach, the only local dependency is to have Docker installed. That’s it.
+## My solution
 
-## The solution
+My approach to keep the full process inside Docker is to use a logical dependency list of packages (`requirements.in`) and use it to compute transitive dependencies (`requirements.txt`) during the build process. That way I only maintain `requirements.in` and generate a `requirements.txt` from it when needed, and it will then be used in application build process. 
 
-The steps I take to keep the full process inside Docker are:
+My process steps are:
 - Start from any Docker image, ideally pinning a mostly static image
-- If a `requirements.txt` file was not already generated, skip to the next step
-	- If it was, install version-pinned packages from it
-- Copy our `requirements.in` logical dependencies file to the image and install the packages with `pip`
-	- If we are rebuilding the image, `requirements.txt` should already have installed everything with the right versions
-- Export our new python environment with `pip freeze` and retrieve the `requirements.txt` to replace our existing one
+- If they exist, install pinned dependencies from `requirements.txt`
+- Else, install logical dependencies from `requirements.in` with `pip`
+	- In this situation, export our new python environment with `pip freeze` and retrieve the generated `requirements.txt`
 
-With this setup, simply deleting `requirements.txt` will trigger a full recalculation of transitive dependencies.
+With this setup, deleting `requirements.txt` will trigger a full recalculation of transitive dependencies.
 
-Those steps can be done easily thanks to the new [`BuildKit`](https://docs.docker.com/develop/develop-images/build_enhancements/) tool that was recently added in the mainline Docker releases. It adds the `COPY --from` feature to your `Dockerfile`, which allows you to export only the necessary `requirements.txt` file from your build.
+This process is made easy thanks to the [`BuildKit`](https://docs.docker.com/develop/develop-images/build_enhancements/) tool that was recently added in the mainline Docker releases. It adds the `COPY --from` feature to our `Dockerfile`, which allows us to export only the necessary `requirements.txt` file from our build. We also use `--mount=type=cache` to speed up the process and cache our `pypi` packages.
 
-You can clone this repository and run `docker build --output dependencies .` to see my simple implementation. I keep the `requirements` files in a `/dependencies` folder to allow for simpler syntax.
+You can clone this repository and run `docker build --output dependencies .` to see my simple implementation. It should generate a `/dependencies/requirements.txt` file.
 
-Here is the `Dockerfile`:
+Here is the `Dockerfile`, which adds `sqlalchemy` and `psycopg2` to the [`FastAPI](https://hub.docker.com/r/tiangolo/uvicorn-gunicorn-fastapi/)` Docker image :
 ```dockerfile
 # Start from the base Docker image you plan to use
 FROM tiangolo/uvicorn-gunicorn-fastapi:python3.8 AS env-stage
@@ -67,11 +65,12 @@ WORKDIR /build
 
 COPY /dependencies .
 
-# First, we install version-pinned packages if they were already computed
-RUN [ -f requirements.txt ] && pip install -r requirements.txt || echo 0
-
-# Then we install additional logical dependencies in the existing environment
-RUN [ -f requirements.in ] && pip install -r requirements.in || echo 0
+# We install from requirements.txt if it exists, and if not we install from requirements.in
+# We use --mount=type=cache to reduce re-downloads from pipy
+RUN --mount=type=cache,target=/root/.cache/pip \
+	[ -f requirements.txt ] && \
+	pip install -r requirements.txt || \
+	pip install -r requirements.in
 
 # We remove our /build folder as it is not needed anymore
 RUN rm -rf /build
@@ -82,7 +81,7 @@ FROM env-stage AS dev-stage
 # ...
 
 # PUT ALL YOUR NORMAL APPLICATION PACKAGING LOGIC HERE
-# BUILD IT AS USUAL WITH docker build --target app-stage .
+# BUILD IT AS USUAL WITH docker build -t app-stage .
 FROM env-stage AS app-stage
 # ...
 
@@ -92,18 +91,26 @@ WORKDIR /export
 RUN echo "# AUTO GENERATED FILE - DO NOT EDIT BY HAND\n" | \
 	tee requirements.txt
 RUN pip freeze >> requirements.txt
+# Making the file read-only to make sure it is not overwritten by mistake
+RUN chmod 0444 requirements.txt
 
 # Finally, we make our export "image" made only of requirements.txt, ready to be used with `build --output dependencies .`
 FROM scratch
 COPY --from=requirements-export-stage /export /
 ```
 
-I use the `requirements.in` format from `pip-tools` as they’re the easiest to write humanly, which I prefer over needing tools to format a file the right way.
+## Closing words
 
-There are 2 things that can happen in this `Dockerfile`:
-- If `requirements.txt` exists -> install the pinned packages with `pip`
-- If `requirements.in` exists -> install the packages with `pip` and generate a version-pinned `requirements.txt`
+Of course, this is a very rough implementation and a lot of things could be done to improve it, make it more reliable, and more importantly standardize it with file locations.
 
-If both files exist, it will first install the version-pinned requirements from `requirements.txt` *then* the logical dependencies of `requirements.in` and update `requirements.txt` after it is done.
+But what it shows is how to work **fully** in Docker for a python project, and never have to care about your local environment while still keeping the same level of reproducibility.
 
-To completely recalculate transitive dependencies from your `requirements.in` file, simply delete `requirements.txt` and build again!
+Working that way has benefits over the standard paradigm of maintaining a local enviroment. It allows you to stop caring about:
+- OS
+- Architecture
+- Python version
+- Existing packages in your Docker images
+
+This makes it much easier to create the proper development environment, and therefore to work accross multiple machines and users. It could also save development time by ensuring there are no package compatibility issues from the very start, instead of discovering it after having worked in a local environment.
+
+But I am still a relatively new Docker user and might be wrong on what I am trying to do, so do not hesitate to comment why you’re in favor or against this approach in the [github discussions forum](https://github.com/mrtolkien/docker_python_packaging/discussions)!
