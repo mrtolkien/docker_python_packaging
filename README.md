@@ -21,7 +21,7 @@ One of the main reasons why I love Docker is the **isolation** it provides to my
 
 But if you decide to use a **local** python environment to compute transtive dependencies, you could run into the following issues:
 - Having different python versions locally and in your Docker image leading to improper package versions
-- Having different operating systems that have different install dependencies for packages (like the very popular `psycopg2` having issues on MacOS)
+- Having different operating systems that have different install/build dependencies for binary packages
 - Having packages already installed in your base Docker image that are not compatible with the versions you will be pinning
 
 So ideally, you need to:
