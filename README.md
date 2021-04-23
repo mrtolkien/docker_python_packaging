@@ -13,13 +13,13 @@ This approach is recommended by:
 - [VS Code tutorials](https://code.visualstudio.com/docs/containers/quickstart-python)
 - [RealPython tutorials](https://github.com/realpython/orchestrating-docker)
 
-It is the de-facto accepted paradigm for developing anything python-related with Docker. It works very well for simpler projects, and does indeed ensure reliable reproducibility once the requirements have been computed.
+It is the de-facto accepted paradigm for developing anything python-related with Docker. It works very well for simpler projects, and does ensure reproducibility once the requirements have been computed.
 
 ## What triggered me to rethink it
 
 One of the main reasons why I love Docker is the **isolation** it provides to my projects.
 
-But if you decide to use a **local** python environment to compute dependencies, you could run into the following issues:
+But if you decide to use a **local** python environment to compute transtive dependencies, you could run into the following issues:
 - Having different python versions locally and in your Docker image leading to improper package versions
 - Having different operating systems that have different install dependencies for packages (like the very popular `psycopg2` having issues on MacOS)
 - Having packages already installed in your base Docker image that are not compatible with the versions you will be pinning
