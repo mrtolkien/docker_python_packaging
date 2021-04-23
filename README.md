@@ -1,4 +1,4 @@
-# Docker Python Packaging
+# Rethinking Docker Python Packaging
 
 ## Reviewing the best practices
 
