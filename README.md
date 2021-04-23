@@ -49,13 +49,13 @@ Which is why I think the right approach should be to do **everything** in Docker
 
 ## My solution
 
-My approach to keep the full process inside Docker is to use a logical dependency list of packages (`requirements.in`) and use it to compute transitive dependencies (`requirements.txt`) during the build process. That way I only maintain `requirements.in` and generate a `requirements.txt` from it when needed, and it will then be used in application build process. 
+My approach to keep the full process inside Docker is to use a logical dependency list of packages (`requirements.in`) and use it to compute transitive dependencies (`requirements.txt`) during the build process. That way I only maintain `requirements.in` and generate a `requirements.txt` from it when needed, and it will then be used in the final application build process. 
 
 My process steps are:
 - Start from any Docker image, ideally pinning a mostly static image
 - If they exist, install pinned dependencies from `requirements.txt`
 - Else, install logical dependencies from `requirements.in` with `pip`
-	- In this situation, export our new python environment with `pip freeze` and retrieve the generated `requirements.txt`
+	- In this situation, export our new python environment with `pip freeze` and retrieve the generated `requirements.txt` locally to be used in future builds
 
 With this setup, deleting `requirements.txt` will trigger a full recalculation of transitive dependencies.
 
@@ -63,7 +63,7 @@ This process is made easy thanks to the [`BuildKit`](https://docs.docker.com/dev
 
 You can clone this repository and run `docker build --output dependencies .` to see my simple implementation. It should generate a `/dependencies/requirements.txt` file.
 
-Here is the `Dockerfile`, which adds `sqlalchemy` and `psycopg2` to the [`FastAPI](https://hub.docker.com/r/tiangolo/uvicorn-gunicorn-fastapi/)` Docker image :
+Here is the `Dockerfile`, which adds `sqlalchemy` and `psycopg2` to the [official `FastAPI` Docker image](https://hub.docker.com/r/tiangolo/uvicorn-gunicorn-fastapi/) :
 ```dockerfile
 # Start from the base Docker image you plan to use
 FROM tiangolo/uvicorn-gunicorn-fastapi:python3.8 AS env-stage
@@ -113,9 +113,9 @@ COPY --from=requirements-export-stage /export /
 
 ## Closing words
 
-Of course, this is a very rough implementation and a lot of things could be done to improve it, make it more reliable, and more importantly standardize it with file locations.
+Of course, this is a very rough implementation and a lot of things could be done to improve it, make it more reliable, and more importantly standardize this files locations.
 
-But what it shows is how to work **fully** in Docker for a python project, and never have to care about your local environment while still keeping the same level of reproducibility.
+But what it shows is how to work **fully** in Docker for a python project, and never have to care about any local environment while still keeping the same level of reproducibility.
 
 Working that way has benefits over the standard paradigm of maintaining a local enviroment. It allows you to stop caring about:
 - OS
