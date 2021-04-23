@@ -3,7 +3,7 @@
 ## TL;DR
 This repository is about computing transitive dependencies from logical dependencies inside Docker instead of relying on a local virtual environment.
 
-You can it with:
+You can try it with:
 ```shell
 git clone https://github.com/mrtolkien/docker_python_packaging.git
 cd docker_python_packaging
