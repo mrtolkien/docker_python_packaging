@@ -39,42 +39,61 @@ With this approach, the only local dependency is to have Docker installed. Thatâ
 
 ## The solution
 
-The steps needed to keep the full process inside Docker are:
-- Start from an existing Docker image
-- If a `requirements.txt` file was not already generated, skip to the next step. If it was, install version-pinned packages from it.
+The steps I take to keep the full process inside Docker are:
+- Start from any Docker image, ideally pinning a mostly static image
+- If a `requirements.txt` file was not already generated, skip to the next step
+	- If it was, install version-pinned packages from it
 - Copy our `requirements.in` logical dependencies file to the image and install the packages with `pip`
+	- If we are rebuilding the image, `requirements.txt` should already have installed everything with the right versions
 - Export our new python environment with `pip freeze` and retrieve the `requirements.txt` to replace our existing one
 
-There are lots of ways to achieve this Docker-only workflow thanks to the new [`BuildKit`](https://docs.docker.com/develop/develop-images/build_enhancements/) tool that was recently added in the mainline Docker releases. It adds the `COPY --from` feature to your `Dockerfile `, which allows you to export only the necessary `requirements.txt` file
+With this setup, simply deleting `requirements.txt` will trigger a full recalculation of transitive dependencies.
 
-You can clone this folder and run `docker build -o build .` to see my very simple implementation.
+Those steps can be done easily thanks to the new [`BuildKit`](https://docs.docker.com/develop/develop-images/build_enhancements/) tool that was recently added in the mainline Docker releases. It adds the `COPY --from` feature to your `Dockerfile`, which allows you to export only the necessary `requirements.txt` file from your build.
 
-Here is my `Dockerfile`:
+You can clone this repository and run `docker build --output dependencies .` to see my simple implementation. I keep the `requirements` files in a `/dependencies` folder to allow for simpler syntax.
+
+Here is the `Dockerfile`:
 ```dockerfile
 # Start from the base Docker image you plan to use
 FROM tiangolo/uvicorn-gunicorn-fastapi:python3.8 AS env-stage
 
+# Update pip
+RUN /usr/local/bin/python -m pip install --upgrade pip
+
+# Starting packages install
+# We use a local /build folder to make the process work whether requirements.txt is here or not
 WORKDIR /build
-COPY requirements.in .
-RUN pip install -r requirements.in
 
-FROM env-stage AS dev-stage
+COPY /dependencies .
+
+# First, we install version-pinned packages if they were already computed
+RUN [ -f requirements.txt ] && pip install -r requirements.txt || echo 0
+
+# Then we install additional logical dependencies in the existing environment
+RUN [ -f requirements.in ] && pip install -r requirements.in || echo 0
+
+# We remove our /build folder as it is not needed anymore
+RUN rm -rf /build
+
+
 # INSTALL YOUR DEV DEPENDENCIES HERE
-# ADD ANYTHING DEV-RELATED HERE
+FROM env-stage AS dev-stage
+# ...
 
+# PUT ALL YOUR NORMAL APPLICATION PACKAGING LOGIC HERE
+# BUILD IT AS USUAL WITH docker build --target app-stage .
 FROM env-stage AS app-stage
-# PUT ALL YOUR NORMAL APP PACKAGING LOGIC HERE
-# BUILD IT AS USUAL WITH docker build -t app-stage .
+# ...
 
-# One middle step to export requirements.txt to /build
-# I am separating it from the main image building logic for clarity
+# Before the exporting stage, we export requirements.txt to /export
 FROM env-stage AS requirements-export-stage
 WORKDIR /export
 RUN echo "# AUTO GENERATED FILE - DO NOT EDIT BY HAND\n" | \
 	tee requirements.txt
 RUN pip freeze >> requirements.txt
 
-# Finally, we make our export "image" made only of requirements.txt, ready to be used with `build --output . .`
+# Finally, we make our export "image" made only of requirements.txt, ready to be used with `build --output dependencies .`
 FROM scratch
 COPY --from=requirements-export-stage /export /
 ```
