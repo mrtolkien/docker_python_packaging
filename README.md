@@ -10,6 +10,8 @@ cd docker_python_packaging
 docker build --output dependencies .
 ```
 
+This will export transitive dependencies to `/dependencies/requirements.txt`
+
 ## Reviewing the best practices
 
 The agreed upon best practice for using Python and Docker is to:
