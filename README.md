@@ -113,7 +113,7 @@ COPY --from=requirements-export-stage /export /
 
 ## Closing words
 
-Of course, this is a very rough implementation and a lot of things could be done to improve it, make it more reliable, and more importantly standardize this files locations.
+Of course, this is a very rough implementation and a lot of things could be done to improve it, make it more reliable, and more importantly standardize files locations.
 
 But what it shows is how to work **fully** in Docker for a python project, and never have to care about any local environment while still keeping the same level of reproducibility.
 
